@@ -1,0 +1,6 @@
+test:
+  script: 
+    - "./compile.sh"
+    - "./test.sh"
+  tags:
+    - VirtualBoxOS

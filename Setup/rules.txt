@@ -1,0 +1,3 @@
+80 /usr/lib/firefox/firefox
+80 /usr/bin/telnet.netkit
+80 /usr/bin/wget
