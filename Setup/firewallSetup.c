@@ -77,22 +77,6 @@ int main(int argc, char *argv[])
 					to_send = realloc(to_send, sizeof(char) * (idx + line_len));
 					strncpy(to_send + idx, line, line_len); // line_len -> does not include null terminator
 					idx += line_len;
-
-					/*free(line);
-					line = NULL;
-					len = 0;*/
-
-					//to_send = realloc(to_send, sizeof(char) * (i + 1));
-					//to_send[]
-
-					// Send string to firewall extension
-					//int str_len = strlen(line) + 2;
-					//char to_send[str_len];
-					//sprintf(to_send, "%s:%s", cmd, line);
-					/*if (write(fd, line, read) != read) {
-						printf("Error in writing to proc file\n");
-						return 1;
-					}*/
 				}
 
 				to_send[idx] = '\0';
