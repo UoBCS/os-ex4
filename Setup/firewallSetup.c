@@ -5,18 +5,48 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <ctype.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#define STR_CHUNK 5
 
 int check_rule(char *line)
 {
-	int port;
-	char filename[200];
+	struct stat sb;
+	int parsing_phase = 1,
+		len = strlen(line),
+		count = 0,
+		total_size = STR_CHUNK,
+		i;
+	char *filename;
 
-	if (sscanf(line, "%d %s", &port, filename) <= 0)
-		return 1;
+	for (i = 0; i < len; i++) {
+		if (line[i] == '\n')
+			continue;
 
-	// Check executable in ret_filename
+		if (line[i] == ' ') {
+			filename = malloc(sizeof(char) * total_size);
+			parsing_phase = 2;
+		}
+		else if (parsing_phase == 1) {
+			if (!isdigit(line[i]))
+				return 1;
+		} else {
+			if (count >= total_size) {
+				total_size += STR_CHUNK;
+				filename = realloc(filename, sizeof(char) * total_size);
+			}
+			filename[count++] = line[i];
+		}
+	}
 
-	return 0;
+	filename[count] = '\0';
+
+	if (stat(filename, &sb) == 0 && sb.st_mode & S_IXUSR)
+		return 0;
+
+	return 2;
 }
 
 int main(int argc, char *argv[])
@@ -59,7 +89,7 @@ int main(int argc, char *argv[])
 				}
 
 				char *line = NULL, *to_send = malloc(sizeof(char) * 2);
-				int res, read, idx = 2, len = 0;
+				int res, read, idx = 2, len = 0, line_len;
 				to_send[0] = 'W';
 				to_send[1] = ':';
 
@@ -68,14 +98,12 @@ int main(int argc, char *argv[])
 					if (res == 1) {
 						printf("ERROR: Ill-formed file\n");
 						break;
-						//return res;
 					} else if (res == 2) {
 						printf("ERROR: Cannot execute file\n");
 						break;
-						//return res;
 					}
 
-					int line_len = strlen(line);
+					line_len = strlen(line);
 					to_send = realloc(to_send, sizeof(char) * (idx + line_len));
 					strncpy(to_send + idx, line, line_len); // line_len -> does not include null terminator
 					idx += line_len;

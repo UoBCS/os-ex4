@@ -84,7 +84,7 @@ char *get_executable(void)
 	snprintf(cmd_proc_f, BUFFERSIZE, "/proc/%d/exe", mod_pid);
 	res = kern_path(cmd_proc_f, LOOKUP_FOLLOW, &path);
 	if (res) {
-		return;
+		return NULL;
 	}
 
 	parent = path.dentry;
