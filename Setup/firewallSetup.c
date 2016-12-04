@@ -67,10 +67,12 @@ int main(int argc, char *argv[])
 					res = check_rule(line);
 					if (res == 1) {
 						printf("ERROR: Ill-formed file\n");
-						return res;
+						break;
+						//return res;
 					} else if (res == 2) {
 						printf("ERROR: Cannot execute file\n");
-						return res;
+						break;
+						//return res;
 					}
 
 					int line_len = strlen(line);
@@ -79,12 +81,14 @@ int main(int argc, char *argv[])
 					idx += line_len;
 				}
 
-				to_send[idx] = '\0';
-				len = strlen(to_send);
+				if (!res) {
+					to_send[idx] = '\0';
+					len = strlen(to_send);
 
-				if (write(fd, to_send, len) != len) {
-					printf("Error in writing to proc file: %d\n", errno);
-					return 1;
+					if (write(fd, to_send, len) != len) {
+						printf("Error writing to proc file: %d\n", errno);
+						return 1;
+					}
 				}
 
 				fclose(fp);
@@ -93,7 +97,7 @@ int main(int argc, char *argv[])
 				if (line)
 					free(line);
 
-				return 0;
+				return res;
 			} else{
 				printf("Usage:\n ");
 				printf("+L to display rules in kern.log\n");

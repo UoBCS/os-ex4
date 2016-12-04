@@ -22,6 +22,11 @@ struct f_rule {
 	struct list_head list;
 };
 
+struct str_ls {
+	char *data;
+	struct str_ls *next;
+};
+
 // Globals
 // -------------------------------------------------------------------
 #define PROC_ENTRY_FILENAME "firewallExtension"
@@ -36,12 +41,40 @@ static struct f_rule f_rule_list;
 DEFINE_MUTEX(proc_lock);
 DEFINE_MUTEX(rules_lock);
 
-void get_executable(void)
+void str_ls_push(struct str_ls **head, char *data)
+{
+	struct str_ls *new_node;
+	new_node = kmalloc(sizeof(struct str_ls), GFP_KERNEL);
+	new_node->data = kmalloc(sizeof(char) * (strlen(data) + 1), GFP_KERNEL);
+
+	strcpy(new_node->data, data);
+	new_node->next = *head;
+	*head = new_node;
+}
+
+// free list
+
+char *str_append(char *s1, char *s2)
+{
+	int l1 = strlen(s1), l2 = strlen(s2), i, j;
+	char *s_ret = kmalloc(sizeof(char) * (l1 + l2 + 1), GFP_KERNEL);
+	
+	for (i = 0, j = 0; i < l1; i++, j++)
+		s_ret[j] = s1[i];
+
+	for (i = 0; i < l2; i++, j++)
+		s_ret[j] = s2[i];
+
+	s_ret[j] = '\0';
+
+	return s_ret;
+}
+
+char *get_executable(void)
 {
 	char *ret_path = NULL;
 	struct path path;
 	pid_t mod_pid;
-	struct dentry *proc_dentry;
 	struct dentry *parent = NULL;
 
 	char cmd_proc_f[BUFFERSIZE];
@@ -51,36 +84,43 @@ void get_executable(void)
 	snprintf(cmd_proc_f, BUFFERSIZE, "/proc/%d/exe", mod_pid);
 	res = kern_path(cmd_proc_f, LOOKUP_FOLLOW, &path);
 	if (res) {
-		printk (KERN_INFO "Could not get dentry for %s!\n", cmd_proc_f);
-		//return -EFAULT;
+		return;
 	}
 
-	//proc_dentry = path.dentry;
-	/*parent = path.dentry;
-	ret_path = krealloc(ret_path, sizeof(char) * strlen(parent->d_name.name), GFP_KERNEL);
-	strcpy(ret_path, parent->d_name.name);*/
-	// do a strncpy
-	//printk (KERN_INFO "The name is %s\n", proc_dentry->d_name.name);
+	parent = path.dentry;
+	int len;
+	char *segment = NULL;
+	struct str_ls *str_list = NULL;
 
-	//parent = proc_dentry->d_parent;
-	int idx = 0, len;
 	do {
+		// Add segment to linked list
+		// --------------------------
+		segment = str_append("/", parent->d_name.name);
+		str_ls_push(&str_list, segment);
 
-		len = strlen(parent->d_name.name) + 1;
-		ret_path = krealloc(ret_path, sizeof(char) * (idx + len), GFP_KERNEL);
-		strncpy(ret_path + idx, strcat("/", parent->d_name.name), len);
-
-		idx += len;
 		parent = parent->d_parent;
+		kfree(segment);
+		segment = NULL;
 	} while (parent && strcmp(parent->d_name.name, "/") != 0);
 
-	ret_path[idx] = '\0';
-	printk(KERN_INFO "Look at this exe: %s\n", ret_path);
+	// Join string
+	// -----------
+	int idx = 0;
+	struct str_ls *cur = str_list;
+	while (cur != NULL) {
+		len = strlen(cur->data);
+		ret_path = krealloc(ret_path, sizeof(char) * (idx + len), GFP_KERNEL);
+		strncpy(ret_path + idx, cur->data, len);
 
-	//return ret_path;
+		idx += len;
+		cur = cur->next;
+	}
+	ret_path[idx] = '\0';
+
+	return ret_path;
 }
 
-unsigned int firewall_ext_hook (unsigned int hooknum, //const struct nf_hook_ops *ops,
+unsigned int firewall_ext_hook (const struct nf_hook_ops *ops, // unsigned int hooknum,
 				    struct sk_buff *skb,
 				    const struct net_device *in,
 				    const struct net_device *out,
@@ -112,8 +152,13 @@ unsigned int firewall_ext_hook (unsigned int hooknum, //const struct nf_hook_ops
 			return NF_ACCEPT;
 		}
 
-		// Get executable
-		get_executable();
+		mutex_lock(&rules_lock);
+		char *program = get_executable();
+		if (program == NULL) {
+			mutex_unlock(&rules_lock);
+			printk(KERN_INFO "firewallExtension: ERROR, could not get executable\n");
+			return NF_ACCEPT;
+		}
 
 		/*
 		A firewall rule consists of a port number and a filename (the full path) of a program separated by a space,
@@ -128,22 +173,21 @@ unsigned int firewall_ext_hook (unsigned int hooknum, //const struct nf_hook_ops
 			if (ntohs(tcp->dest) == rule->port) {
 				no_rule_for_port = 0;
 
-				/*if (program == rule->program)
-					return NF_ACCEPT;*/
+				if (strcmp(program, rule->program) == 0) {
+					mutex_unlock(&rules_lock);
+					return NF_ACCEPT;
+				}
 			}
 		}
 
 		if (!no_rule_for_port) {
 			tcp_done(sk);
 			printk(KERN_INFO "firewallExtension: connection shut down\n");
+			mutex_unlock(&rules_lock);
 			return NF_DROP;
 		}
 
-		/*if (ntohs (tcp->dest) == 80) {
-			tcp_done(sk);
-			printk(KERN_INFO "firewallExtension: connection shut down\n");
-			return NF_DROP;
-		}*/
+		mutex_unlock(&rules_lock);
 	}
 
 	return NF_ACCEPT;
@@ -151,8 +195,6 @@ unsigned int firewall_ext_hook (unsigned int hooknum, //const struct nf_hook_ops
 
 ssize_t k_write(struct file *file, const char __user *buffer, size_t count, loff_t *offset)
 {
-	
-
 	// Parse input (error handling is done in the user space)
 	int len = count + 1;
 	char *buf = kmalloc(sizeof(char) * len, GFP_KERNEL), cmd;
