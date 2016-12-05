@@ -25,7 +25,7 @@ int check_rule(char *line)
 		if (line[i] == '\n')
 			continue;
 
-		if (line[i] == ' ') {
+		if (line[i] == ' ' && i != 0) {
 			filename = malloc(sizeof(char) * total_size);
 			parsing_phase = 2;
 		}

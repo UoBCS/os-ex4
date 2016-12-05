@@ -52,7 +52,17 @@ void str_ls_push(struct str_ls **head, char *data)
 	*head = new_node;
 }
 
-// free list
+void str_ls_destroy(struct str_ls *head)
+{
+	struct str_ls *tmp;
+
+	while (head != NULL) {
+		tmp = head;
+		head = head->next;
+		kfree(tmp->data);
+		kfree(tmp);
+	}
+}
 
 char *str_append(char *s1, char *s2)
 {
@@ -117,6 +127,9 @@ char *get_executable(void)
 	}
 	ret_path[idx] = '\0';
 
+	str_ls_destroy(str_list);
+	path_put(&path);
+
 	return ret_path;
 }
 
@@ -160,13 +173,6 @@ unsigned int firewall_ext_hook (const struct nf_hook_ops *ops, // unsigned int h
 			return NF_ACCEPT;
 		}
 
-		/*
-		A firewall rule consists of a port number and a filename (the full path) of a program separated by a space,
-		meaning that the corresponding program is allowed to make outgoing connections on this TCP-port.
-		If there is no rule for a given port, any program should be allowed to make outgoing connections on this port.
-		A connection is not allowed when rules for the port exist, but the program trying to establish the connection is
-		not in the list of allowed programs.
-		*/
 		struct f_rule *rule;
 		int no_rule_for_port = 1;
 		list_for_each_entry(rule, &f_rule_list.list, list) {
@@ -174,6 +180,7 @@ unsigned int firewall_ext_hook (const struct nf_hook_ops *ops, // unsigned int h
 				no_rule_for_port = 0;
 
 				if (strcmp(program, rule->program) == 0) {
+					kfree(program);
 					mutex_unlock(&rules_lock);
 					return NF_ACCEPT;
 				}
@@ -182,11 +189,13 @@ unsigned int firewall_ext_hook (const struct nf_hook_ops *ops, // unsigned int h
 
 		if (!no_rule_for_port) {
 			tcp_done(sk);
+			kfree(program);
 			printk(KERN_INFO "firewallExtension: connection shut down\n");
 			mutex_unlock(&rules_lock);
 			return NF_DROP;
 		}
 
+		kfree(program);
 		mutex_unlock(&rules_lock);
 	}
 
@@ -199,7 +208,6 @@ ssize_t k_write(struct file *file, const char __user *buffer, size_t count, loff
 	int len = count + 1;
 	char *buf = kmalloc(sizeof(char) * len, GFP_KERNEL), cmd;
 	struct f_rule *rule;
-	
 	
 	strncpy_from_user(buf, buffer, len - 1);
 	buf[len - 1] = '\0';
@@ -263,6 +271,9 @@ ssize_t k_write(struct file *file, const char __user *buffer, size_t count, loff
 				program[c++] = rules[i];
 			}
 		}
+
+		if (program)
+			kfree(program);
 	}
 
 	kfree(buf);
@@ -291,8 +302,8 @@ int procfs_close(struct inode *inode, struct file *file)
 	proc_open--;
 	printk (KERN_INFO "firewallExtension: proc file closed\n");
 	mutex_unlock(&proc_lock);
-
 	module_put(THIS_MODULE);
+
 	return 0;
 }
 
